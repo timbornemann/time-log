@@ -1,6 +1,6 @@
 {
-  "name": "Zeit-Logbuch",
-  "description": "Ein elegantes Zeit-Logbuch mit Stoppuhr, Countdown-Timer, automatischer Pomodoro-Steuerung und interaktiver grafischer Tagesauswertung.",
+  "name": "Logbook",
+  "description": "Ein elegantes Logbook mit Stoppuhr, Countdown-Timer, automatischer Pomodoro-Steuerung und interaktiver grafischer Tagesauswertung.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
