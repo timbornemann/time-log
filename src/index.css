@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Playfair+Display:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --color-brand-sage: #8C9472;
+  --color-brand-sage-light: #E8EADF;
+  --color-brand-sage-dark: #6B705C;
+  --color-brand-sand: #F5F2ED;
+  --color-brand-cream: #FDFBF7;
+  --color-brand-border: #E8E2D9;
+  --color-brand-border-dark: #DED9D0;
+  --color-text-primary: #2D2D28;
+  --color-text-secondary: #4A4A40;
+  --color-text-muted: #9A9A8C;
+  --color-brand-terracotta: #CC7722;
+}
+
+/* Custom styles for high-fidelity animations and scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #E8E2D9;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #DED9D0;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.5;
+  }
+}
+
+.pulse-ring-active {
+  animation: pulse-ring 3s infinite ease-in-out;
+}
