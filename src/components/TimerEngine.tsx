@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTimeTracker } from '../context/TimeTrackerContext';
-import { Play, Pause, Square, SkipForward, Hourglass, Timer as TimerIcon, Flame, BellRing, X, FolderKanban } from 'lucide-react';
+import { Play, Pause, Square, SkipForward, Timer as TimerIcon, Flame, BellRing, X, FolderKanban } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ProjectManager } from './ProjectManager';
 
@@ -76,10 +76,13 @@ export const TimerEngine: React.FC = () => {
   // Elapsed timers
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [pauseSeconds, setPauseSeconds] = useState(0);
-  
-  // Helpers to calculate current frame durations
-  const lastTickTime = useRef<number>(0);
-  const activePauseStart = useRef<number | null>(null);
+
+  // Internal refs for precise elapsed/pause tracking
+  const sessionStartRef = useRef<number | null>(null);
+  const pausedTotalMsRef = useRef(0);
+  const pauseStartRef = useRef<number | null>(null);
+  const lastElapsedSecondRef = useRef(0);
+  const lastPauseSecondRef = useRef(0);
 
   // Countdown Config states
   const [cfgMinutes, setCfgMinutes] = useState(25);
@@ -92,7 +95,7 @@ export const TimerEngine: React.FC = () => {
   const [pomoCycle, setPomoCycle] = useState(1);
 
   // Setup refs for accurate interval loop
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const selectedProject = projects.find(p => p.id === currentProjectId);
 
@@ -128,48 +131,78 @@ export const TimerEngine: React.FC = () => {
     setPomoBreakMin(breakM);
   };
 
+  const getSessionSnapshot = (now = Date.now()) => {
+    const sessionStart = sessionStartRef.current ?? sessionStartTime ?? now;
+    const livePauseMs = isPaused && pauseStartRef.current !== null ? now - pauseStartRef.current : 0;
+    const totalPauseMs = pausedTotalMsRef.current + Math.max(livePauseMs, 0);
+    const activeMs = Math.max(0, now - sessionStart - totalPauseMs);
+
+    return {
+      sessionStart,
+      now,
+      elapsedSeconds: Math.floor(activeMs / 1000),
+      pauseSeconds: Math.floor(totalPauseMs / 1000),
+    };
+  };
+
+  const resetSessionState = () => {
+    sessionStartRef.current = null;
+    pausedTotalMsRef.current = 0;
+    pauseStartRef.current = null;
+    lastElapsedSecondRef.current = 0;
+    lastPauseSecondRef.current = 0;
+
+    setElapsedSeconds(0);
+    setPauseSeconds(0);
+    setSessionStartTime(null);
+  };
+
+  const startFreshSession = (startAt = Date.now()) => {
+    sessionStartRef.current = startAt;
+    pausedTotalMsRef.current = 0;
+    pauseStartRef.current = null;
+    lastElapsedSecondRef.current = 0;
+    lastPauseSecondRef.current = 0;
+
+    setSessionStartTime(startAt);
+    setElapsedSeconds(0);
+    setPauseSeconds(0);
+  };
+
   // Timer Ticking Interval Hook
   useEffect(() => {
-    if (isRunning) {
-      lastTickTime.current = Date.now();
-      
-      const tick = () => {
-        const now = Date.now();
-        
-        if (isPaused) {
-          // Add paused seconds
-          if (activePauseStart.current !== null) {
-            const deltaMs = now - activePauseStart.current;
-            setPauseSeconds(prev => prev + Math.floor(deltaMs / 1000));
-            activePauseStart.current = now;
-          }
-        } else {
-          // Add active seconds
-          const deltaMs = now - lastTickTime.current;
-          const deltaSecs = Math.floor(deltaMs / 1000);
-          
-          if (deltaSecs >= 1) {
-            setElapsedSeconds(prev => prev + deltaSecs);
-            lastTickTime.current = now - (deltaMs % 1000); // preserve fractions
-          }
-        }
-        
-        timeoutRef.current = setTimeout(tick, 200);
-      };
-
-      timeoutRef.current = setTimeout(tick, 200);
-    } else {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+    if (!isRunning) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
+      return;
     }
 
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+    const syncSessionState = () => {
+      const snapshot = getSessionSnapshot();
+
+      if (snapshot.elapsedSeconds !== lastElapsedSecondRef.current) {
+        lastElapsedSecondRef.current = snapshot.elapsedSeconds;
+        setElapsedSeconds(snapshot.elapsedSeconds);
+      }
+
+      if (snapshot.pauseSeconds !== lastPauseSecondRef.current) {
+        lastPauseSecondRef.current = snapshot.pauseSeconds;
+        setPauseSeconds(snapshot.pauseSeconds);
       }
     };
-  }, [isRunning, isPaused]);
+
+    syncSessionState();
+    intervalRef.current = setInterval(syncSessionState, 200);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [isRunning, isPaused, sessionStartTime]);
 
   // Handle automatic phase transitions / countdown timer finish
   useEffect(() => {
@@ -183,102 +216,103 @@ export const TimerEngine: React.FC = () => {
     } else if (activeTab === 'pomodoro') {
       const targetSeconds = (pomoPhase === 'work' ? pomoWorkMin : pomoBreakMin) * 60;
       if (targetSeconds > 0 && elapsedSeconds >= targetSeconds) {
-        handleFinishPomodoroPhase();
+        handleFinishPomodoroPhase({ logCompletedDuration: true });
       }
     }
   }, [elapsedSeconds, isRunning, isPaused, activeTab, pomoPhase, pomoWorkMin, pomoBreakMin, cfgMinutes, cfgSeconds]);
 
   // Handle Event: Timer countdown finished fully
   const handleFinishTimer = () => {
+    const targetDuration = cfgMinutes * 60 + cfgSeconds;
+    if (targetDuration <= 0) {
+      handleStop(false);
+      return;
+    }
+
+    const snapshot = getSessionSnapshot();
     setIsRunning(false);
     setIsPaused(false);
-    
+
+    if (currentProjectId) {
+      addTimeLog(
+        currentProjectId,
+        snapshot.sessionStart,
+        snapshot.now,
+        targetDuration,
+        snapshot.pauseSeconds,
+        'timer'
+      );
+    }
+
     if (isSoundEnabled) {
       playChime('success');
     }
 
-    const totalDuration = cfgMinutes * 60 + cfgSeconds;
-    
-    // Log the successful countdown tracking
-    if (currentProjectId) {
-      addTimeLog(
-        currentProjectId,
-        sessionStartTime || (Date.now() - totalDuration * 1000),
-        Date.now(),
-        totalDuration,
-        pauseSeconds,
-        'timer'
-      );
-    }
-    
-    // Reset parameters
-    setElapsedSeconds(0);
-    setPauseSeconds(0);
-    setSessionStartTime(null);
+    resetSessionState();
   };
 
   // Handle Event: Switch between Pomodoro Work and break cycles
-  const handleFinishPomodoroPhase = () => {
-    if (isSoundEnabled) {
-      playChime(pomoPhase === 'work' ? 'break' : 'work');
-    }
-
+  const handleFinishPomodoroPhase = (options: { logCompletedDuration: boolean }) => {
     const completedDuration = (pomoPhase === 'work' ? pomoWorkMin : pomoBreakMin) * 60;
     const logType: 'pomodoro_work' | 'pomodoro_break' = pomoPhase === 'work' ? 'pomodoro_work' : 'pomodoro_break';
+    const snapshot = getSessionSnapshot();
+    const loggedDuration = options.logCompletedDuration ? completedDuration : snapshot.elapsedSeconds;
 
-    // Log the completed interval under the chosen project
-    if (currentProjectId) {
+    if (currentProjectId && loggedDuration > 0) {
       addTimeLog(
         currentProjectId,
-        sessionStartTime || (Date.now() - completedDuration * 1000),
-        Date.now(),
-        completedDuration,
-        pauseSeconds,
+        snapshot.sessionStart,
+        snapshot.now,
+        loggedDuration,
+        snapshot.pauseSeconds,
         logType
       );
     }
 
-    // Toggle Phase
-    if (pomoPhase === 'work') {
-      setPomoPhase('break');
-      setElapsedSeconds(0);
-      setPauseSeconds(0);
-      setSessionStartTime(Date.now());
-      lastTickTime.current = Date.now();
-    } else {
-      setPomoPhase('work');
-      setPomoCycle(prev => prev + 1);
-      setElapsedSeconds(0);
-      setPauseSeconds(0);
-      setSessionStartTime(Date.now());
-      lastTickTime.current = Date.now();
+    if (isSoundEnabled) {
+      playChime(pomoPhase === 'work' ? 'break' : 'work');
     }
+
+    const nextPhase = pomoPhase === 'work' ? 'break' : 'work';
+    if (pomoPhase === 'break') {
+      setPomoCycle(prev => prev + 1);
+    }
+
+    const restartAt = Date.now();
+    setPomoPhase(nextPhase);
+    setIsPaused(false);
+    startFreshSession(restartAt);
   };
 
   // Button Action: Start Timer
   const handleStart = () => {
     if (!currentProjectId) {
-      alert("Bitte wähle oder erstelle zuerst ein Projekt für die Zeiterfassung.");
+      alert('Bitte waehle oder erstelle zuerst ein Projekt fuer die Zeiterfassung.');
       return;
     }
-    
+
+    if (activeTab === 'timer' && cfgMinutes * 60 + cfgSeconds <= 0) {
+      alert('Bitte stelle fuer den Countdown mindestens 1 Sekunde ein.');
+      return;
+    }
+
     if (isPaused) {
-      // Resume from paused
-      setIsPaused(false);
-      activePauseStart.current = null;
-      lastTickTime.current = Date.now();
-    } else {
-      // Fresh new start
-      setIsRunning(true);
-      setIsPaused(false);
-      setElapsedSeconds(0);
-      setPauseSeconds(0);
-      setSessionStartTime(Date.now());
-      lastTickTime.current = Date.now();
-      
-      if (isSoundEnabled) {
-        playChime('work');
+      const pauseStart = pauseStartRef.current;
+      if (pauseStart !== null) {
+        pausedTotalMsRef.current += Date.now() - pauseStart;
       }
+      pauseStartRef.current = null;
+      setIsPaused(false);
+      return;
+    }
+
+    const startAt = Date.now();
+    startFreshSession(startAt);
+    setIsRunning(true);
+    setIsPaused(false);
+
+    if (isSoundEnabled) {
+      playChime('work');
     }
   };
 
@@ -287,14 +321,15 @@ export const TimerEngine: React.FC = () => {
     if (!isRunning) return;
 
     if (isPaused) {
-      // Resume
+      const pauseStart = pauseStartRef.current;
+      if (pauseStart !== null) {
+        pausedTotalMsRef.current += Date.now() - pauseStart;
+      }
+      pauseStartRef.current = null;
       setIsPaused(false);
-      activePauseStart.current = null;
-      lastTickTime.current = Date.now();
     } else {
-      // Enter pause
+      pauseStartRef.current = Date.now();
       setIsPaused(true);
-      activePauseStart.current = Date.now();
     }
   };
 
@@ -302,12 +337,11 @@ export const TimerEngine: React.FC = () => {
   const handleStop = (saveLog: boolean = true) => {
     if (!isRunning) return;
 
+    const snapshot = getSessionSnapshot();
     setIsRunning(false);
     setIsPaused(false);
-    activePauseStart.current = null;
 
-    if (saveLog && currentProjectId && elapsedSeconds > 0) {
-      // Decide logging type
+    if (saveLog && currentProjectId && snapshot.elapsedSeconds > 0) {
       let type: 'stopwatch' | 'timer' | 'pomodoro_work' | 'pomodoro_break' = 'stopwatch';
       if (activeTab === 'timer') type = 'timer';
       if (activeTab === 'pomodoro') {
@@ -316,44 +350,44 @@ export const TimerEngine: React.FC = () => {
 
       addTimeLog(
         currentProjectId,
-        sessionStartTime || (Date.now() - elapsedSeconds * 1000),
-        Date.now(),
-        elapsedSeconds,
-        pauseSeconds,
+        snapshot.sessionStart,
+        snapshot.now,
+        snapshot.elapsedSeconds,
+        snapshot.pauseSeconds,
         type
       );
-      
+
       if (isSoundEnabled) {
         playChime('success');
       }
     }
 
-    // Clear state
-    setElapsedSeconds(0);
-    setPauseSeconds(0);
-    setSessionStartTime(null);
+    resetSessionState();
   };
 
   // Button Action: Skip or reset Pomodoro Phase manually
   const handleSkipPomodoro = () => {
     if (activeTab !== 'pomodoro' || !isRunning) return;
-    
-    // Ask if they want to log partial time
-    if (window.confirm(`Möchtest du die bisherigen ${formatTime(elapsedSeconds)} dieser Pomodoro-Phase (${pomoPhase === 'work' ? 'Arbeit' : 'Pause'}) loggen?`)) {
-      handleFinishPomodoroPhase();
-    } else {
-      // Simply skip without saving
-      if (pomoPhase === 'work') {
-        setPomoPhase('break');
-      } else {
-        setPomoPhase('work');
-        setPomoCycle(prev => prev + 1);
-      }
-      setElapsedSeconds(0);
-      setPauseSeconds(0);
-      setSessionStartTime(Date.now());
-      lastTickTime.current = Date.now();
+
+    const snapshot = getSessionSnapshot();
+    const shouldLogPartial = window.confirm(
+      `Moechtest du die bisherigen ${formatTime(snapshot.elapsedSeconds)} dieser Pomodoro-Phase (${pomoPhase === 'work' ? 'Arbeit' : 'Pause'}) loggen?`
+    );
+
+    if (shouldLogPartial) {
+      handleFinishPomodoroPhase({ logCompletedDuration: false });
+      return;
     }
+
+    const nextPhase = pomoPhase === 'work' ? 'break' : 'work';
+    if (pomoPhase === 'break') {
+      setPomoCycle((prev) => prev + 1);
+    }
+
+    const restartAt = Date.now();
+    setPomoPhase(nextPhase);
+    setIsPaused(false);
+    startFreshSession(restartAt);
   };
 
   // Calculate Progress Percentages for Circles
@@ -405,7 +439,10 @@ export const TimerEngine: React.FC = () => {
   // Cleanup effect
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     };
   }, []);
 
@@ -429,7 +466,7 @@ export const TimerEngine: React.FC = () => {
             }`}
           >
             <BellRing size={10} />
-            {isSoundEnabled ? 'TÖNE AN' : 'STUMM'}
+            {isSoundEnabled ? 'TOENE AN' : 'STUMM'}
           </button>
         </div>
 
@@ -496,8 +533,11 @@ export const TimerEngine: React.FC = () => {
                 disabled={isRunning}
                 onClick={() => {
                   setActiveTab(tab);
-                  setElapsedSeconds(0);
-                  setPauseSeconds(0);
+                  resetSessionState();
+                  if (tab === 'pomodoro') {
+                    setPomoPhase('work');
+                    setPomoCycle(1);
+                  }
                 }}
                 className={`py-2 text-xs font-semibold tracking-wide rounded-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                   isSelected
@@ -559,7 +599,7 @@ export const TimerEngine: React.FC = () => {
           <span id="center-badge" className="text-[10px] font-bold tracking-[0.25em] text-text-muted uppercase mb-1">
             {activeTab === 'stopwatch' && 'STOPPING'}
             {activeTab === 'timer' && 'VERBLEIBEND'}
-            {activeTab === 'pomodoro' && `${pomoPhase === 'work' ? '🔥 ARBEIT' : '🌱 PAUSE'}`}
+            {activeTab === 'pomodoro' && `${pomoPhase === 'work' ? 'ARBEIT' : 'PAUSE'}`}
           </span>
 
           <span 
@@ -721,7 +761,7 @@ export const TimerEngine: React.FC = () => {
 
               {activeTab === 'stopwatch' && (
                 <div className="flex flex-col items-center justify-center text-xs text-text-muted px-4 leading-relaxed font-sans">
-                  <p>Mit der Stoppuhr zählst du deine Zeit linear hoch. Bei Pausen wird deine Pausenzeit separat für deinen Bericht gemessen.</p>
+                  <p>Mit der Stoppuhr zaehlst du deine Zeit linear hoch. Bei Pausen wird deine Pausenzeit separat fuer deinen Bericht gemessen.</p>
                 </div>
               )}
             </motion.div>
@@ -735,8 +775,8 @@ export const TimerEngine: React.FC = () => {
               className="flex justify-center flex-col items-center"
             >
               <div id="countdown-status" className="text-xs text-text-secondary font-medium">
-                {activeTab === 'stopwatch' && 'Messung läuft...'}
-                {activeTab === 'timer' && 'Countdown läuft...'}
+                {activeTab === 'stopwatch' && 'Messung laeuft...'}
+                {activeTab === 'timer' && 'Countdown laeuft...'}
                 {activeTab === 'pomodoro' && (
                   <div className="flex items-center gap-1.5 bg-brand-sage-light text-brand-sage-dark px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-[#D0D4C2]">
                     <Flame size={12} className="animate-pulse text-brand-sage-dark" />
@@ -772,7 +812,7 @@ export const TimerEngine: React.FC = () => {
             <button
               id="btn-abort-timer"
               onClick={() => {
-                if (window.confirm("Möchtest du diese aktive Zeiterfassung verwerfen ohne sie zu loggen?")) {
+                if (window.confirm('Moechtest du diese aktive Zeiterfassung verwerfen ohne sie zu loggen?')) {
                   handleStop(false);
                 }
               }}
@@ -812,7 +852,7 @@ export const TimerEngine: React.FC = () => {
                 id="btn-pomo-skip"
                 onClick={handleSkipPomodoro}
                 className="w-12 h-12 rounded-full border border-brand-border hover:bg-brand-sand text-text-muted flex items-center justify-center transition-all cursor-pointer shadow-sm"
-                title="Phase überspringen"
+                title="Phase ueberspringen"
               >
                 <SkipForward size={16} />
               </button>
@@ -825,3 +865,4 @@ export const TimerEngine: React.FC = () => {
     </div>
   );
 };
+
