@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Project, TimeLog } from '../types';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { Project, SessionType, TimeLog } from '../types';
 
 interface TimeTrackerContextType {
   projects: Project[];
@@ -9,127 +9,224 @@ interface TimeTrackerContextType {
   addProject: (name: string, color: string) => void;
   editProject: (id: string, name: string, color: string) => void;
   deleteProject: (id: string) => void;
-  addTimeLog: (projectId: string, startTime: number, endTime: number, duration: number, pauseDuration: number, type: TimeLog['type']) => void;
+  addTimeLog: (
+    projectId: string,
+    startTime: number,
+    endTime: number,
+    duration: number,
+    pauseDuration: number,
+    type: TimeLog['type']
+  ) => void;
   deleteTimeLog: (id: string) => void;
   clearAllLogs: () => void;
 }
 
-const DEFAULT_PROJECTS: Project[] = [
-  { id: 'p1', name: '📚 Studium & Lernen', color: '#3b82f6', createdAt: Date.now() - 5 * 86400000 },
-  { id: 'p2', name: '💼 Arbeit & Karriere', color: '#10b981', createdAt: Date.now() - 4 * 86400000 },
-  { id: 'p3', name: '🏋️ Sport & Fitness', color: '#ef4444', createdAt: Date.now() - 3 * 86400000 },
-  { id: 'p4', name: '🎨 Eigene Projekte', color: '#f59e0b', createdAt: Date.now() - 2 * 86400000 },
-  { id: 'p5', name: '🧹 Haushalt & Alltag', color: '#8b5cf6', createdAt: Date.now() - 1 * 86400000 },
-];
+const DAY_MS = 86_400_000;
 
-const getYesterdayAndTodayStrings = () => {
+const STORAGE_KEYS = {
+  projects: 'zeitlog_projects',
+  logs: 'zeitlog_timelogs',
+  activeProject: 'zeitlog_active_project',
+} as const;
+
+const formatDateStr = (date: Date): string => {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+const getDaySeeds = () => {
   const today = new Date();
-  const yesterday = new Date(Date.now() - 86400000);
-  
-  const formatDateStr = (d: Date) => {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
+  today.setHours(0, 0, 0, 0);
+
+  const yesterday = new Date(today.getTime() - DAY_MS);
 
   return {
+    todayStartMs: today.getTime(),
+    yesterdayStartMs: yesterday.getTime(),
     todayStr: formatDateStr(today),
-    yesterdayStr: formatDateStr(yesterday)
+    yesterdayStr: formatDateStr(yesterday),
   };
 };
 
-const SEED_LOGS = (): TimeLog[] => {
-  const { todayStr, yesterdayStr } = getYesterdayAndTodayStrings();
-  
-  const todayMs = new Date(todayStr).getTime();
-  const yesterdayMs = new Date(yesterdayStr).getTime();
+const withTime = (dayStartMs: number, hour: number, minute: number) => {
+  return dayStartMs + (hour * 60 + minute) * 60_000;
+};
+
+const DEFAULT_PROJECTS: Project[] = [
+  { id: 'p1', name: 'Studium & Lernen', color: '#3b82f6', createdAt: Date.now() - 5 * DAY_MS },
+  { id: 'p2', name: 'Arbeit & Karriere', color: '#10b981', createdAt: Date.now() - 4 * DAY_MS },
+  { id: 'p3', name: 'Sport & Fitness', color: '#ef4444', createdAt: Date.now() - 3 * DAY_MS },
+  { id: 'p4', name: 'Eigene Projekte', color: '#f59e0b', createdAt: Date.now() - 2 * DAY_MS },
+  { id: 'p5', name: 'Haushalt & Alltag', color: '#8b5cf6', createdAt: Date.now() - 1 * DAY_MS },
+];
+
+const seedLogs = (): TimeLog[] => {
+  const { todayStartMs, yesterdayStartMs, todayStr, yesterdayStr } = getDaySeeds();
 
   return [
-    // Yesterday logs
     {
       id: 'log-1',
       projectId: 'p1',
-      startTime: yesterdayMs + 9 * 3600 * 1000, // 09:00 Uhr
-      endTime: yesterdayMs + 10.5 * 3600 * 1000, // 10:30 Uhr
-      duration: 5400, // 90 min
-      pauseDuration: 300, // 5 min
+      startTime: withTime(yesterdayStartMs, 9, 0),
+      endTime: withTime(yesterdayStartMs, 10, 30),
+      duration: 5100,
+      pauseDuration: 300,
       type: 'stopwatch',
-      date: yesterdayStr
+      date: yesterdayStr,
     },
     {
       id: 'log-2',
       projectId: 'p2',
-      startTime: yesterdayMs + 11 * 3600 * 1000, 
-      endTime: yesterdayMs + 12 * 3600 * 1000, 
-      duration: 3300, // 55 min
-      pauseDuration: 300, // 5 min
+      startTime: withTime(yesterdayStartMs, 11, 0),
+      endTime: withTime(yesterdayStartMs, 12, 0),
+      duration: 3300,
+      pauseDuration: 300,
       type: 'pomodoro_work',
-      date: yesterdayStr
+      date: yesterdayStr,
     },
     {
       id: 'log-3',
       projectId: 'p2',
-      startTime: yesterdayMs + 12.05 * 3600 * 1000, 
-      endTime: yesterdayMs + 12.10 * 3600 * 1000, 
-      duration: 300, // 5 min
-      pauseDuration: 0, 
+      startTime: withTime(yesterdayStartMs, 12, 5),
+      endTime: withTime(yesterdayStartMs, 12, 10),
+      duration: 300,
+      pauseDuration: 0,
       type: 'pomodoro_break',
-      date: yesterdayStr
+      date: yesterdayStr,
     },
     {
       id: 'log-4',
       projectId: 'p3',
-      startTime: yesterdayMs + 17 * 3600 * 1000,
-      endTime: yesterdayMs + 18 * 3600 * 1000,
-      duration: 3600, // 60 min
+      startTime: withTime(yesterdayStartMs, 17, 0),
+      endTime: withTime(yesterdayStartMs, 18, 0),
+      duration: 3600,
       pauseDuration: 0,
       type: 'timer',
-      date: yesterdayStr
+      date: yesterdayStr,
     },
-    
-    // Today logs
     {
       id: 'log-5',
       projectId: 'p1',
-      startTime: todayMs + 8.5 * 3600 * 1000, // 08:30
-      endTime: todayMs + 10 * 3600 * 1000, // 10:00
-      duration: 5000, // 83 min (z.B. mit pauses)
-      pauseDuration: 400, // 6.6 min
+      startTime: withTime(todayStartMs, 8, 30),
+      endTime: withTime(todayStartMs, 10, 0),
+      duration: 5000,
+      pauseDuration: 400,
       type: 'stopwatch',
-      date: todayStr
+      date: todayStr,
     },
     {
       id: 'log-6',
       projectId: 'p2',
-      startTime: todayMs + 10.5 * 3600 * 1000, 
-      endTime: todayMs + 11.5 * 3600 * 1000, 
-      duration: 3600, 
+      startTime: withTime(todayStartMs, 10, 30),
+      endTime: withTime(todayStartMs, 11, 30),
+      duration: 3600,
       pauseDuration: 0,
       type: 'timer',
-      date: todayStr
+      date: todayStr,
     },
     {
       id: 'log-7',
       projectId: 'p4',
-      startTime: todayMs + 13 * 3600 * 1000,
-      endTime: todayMs + 13.7 * 3600 * 1000,
-      duration: 2520, // 42 min
+      startTime: withTime(todayStartMs, 13, 0),
+      endTime: withTime(todayStartMs, 13, 42),
+      duration: 2520,
       pauseDuration: 0,
       type: 'timer',
-      date: todayStr
+      date: todayStr,
     },
     {
       id: 'log-8',
       projectId: 'p1',
-      startTime: todayMs + 14 * 3600 * 1000,
-      endTime: todayMs + 14.45 * 3600 * 1000,
-      duration: 2500, // 41 min
-      pauseDuration: 200, // ~3 min
+      startTime: withTime(todayStartMs, 14, 0),
+      endTime: withTime(todayStartMs, 14, 45),
+      duration: 2500,
+      pauseDuration: 200,
       type: 'pomodoro_work',
-      date: todayStr
-    }
+      date: todayStr,
+    },
   ];
+};
+
+const isProject = (value: unknown): value is Project => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Project;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.name === 'string' &&
+    typeof candidate.color === 'string' &&
+    typeof candidate.createdAt === 'number'
+  );
+};
+
+const isSessionType = (value: unknown): value is SessionType => {
+  return value === 'stopwatch' || value === 'timer' || value === 'pomodoro_work' || value === 'pomodoro_break';
+};
+
+const isTimeLog = (value: unknown): value is TimeLog => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as TimeLog;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.projectId === 'string' &&
+    typeof candidate.startTime === 'number' &&
+    typeof candidate.endTime === 'number' &&
+    typeof candidate.duration === 'number' &&
+    typeof candidate.pauseDuration === 'number' &&
+    isSessionType(candidate.type) &&
+    typeof candidate.date === 'string'
+  );
+};
+
+const parseProjects = (raw: string | null): Project[] | null => {
+  if (raw === null) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+
+    return parsed.filter(isProject);
+  } catch (error) {
+    console.error('Error parsing projects from localStorage', error);
+    return null;
+  }
+};
+
+const parseLogs = (raw: string | null): TimeLog[] | null => {
+  if (raw === null) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+
+    return parsed.filter(isTimeLog);
+  } catch (error) {
+    console.error('Error parsing logs from localStorage', error);
+    return null;
+  }
+};
+
+const createId = (prefix: 'proj' | 'log'): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 const TimeTrackerContext = createContext<TimeTrackerContextType | undefined>(undefined);
@@ -138,93 +235,125 @@ export const TimeTrackerProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [projects, setProjects] = useState<Project[]>([]);
   const [timeLogs, setTimeLogs] = useState<TimeLog[]>([]);
   const [currentProjectId, setCurrentProjectIdState] = useState<string>('');
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Initial load
   useEffect(() => {
-    const storedProjects = localStorage.getItem('zeitlog_projects');
-    const storedLogs = localStorage.getItem('zeitlog_timelogs');
-    const storedActiveProject = localStorage.getItem('zeitlog_active_project');
+    const storedProjects = parseProjects(localStorage.getItem(STORAGE_KEYS.projects));
+    const initialProjects = storedProjects ?? DEFAULT_PROJECTS;
 
-    let initialProjects = DEFAULT_PROJECTS;
-    if (storedProjects) {
-      try {
-        initialProjects = JSON.parse(storedProjects);
-      } catch (e) {
-        console.error("Error parsing projects from localStorage", e);
-      }
-    } else {
-      localStorage.setItem('zeitlog_projects', JSON.stringify(DEFAULT_PROJECTS));
-    }
+    const storedLogs = parseLogs(localStorage.getItem(STORAGE_KEYS.logs));
+    const initialLogs = storedLogs ?? seedLogs();
+
+    const storedActiveProject = localStorage.getItem(STORAGE_KEYS.activeProject);
+
     setProjects(initialProjects);
-
-    let initialLogs = SEED_LOGS();
-    if (storedLogs) {
-      try {
-        initialLogs = JSON.parse(storedLogs);
-      } catch (e) {
-        console.error("Error parsing logs from localStorage", e);
-      }
-    } else {
-      localStorage.setItem('zeitlog_timelogs', JSON.stringify(initialLogs));
-    }
     setTimeLogs(initialLogs);
 
-    if (storedActiveProject && initialProjects.some(p => p.id === storedActiveProject)) {
+    if (storedActiveProject && initialProjects.some((project) => project.id === storedActiveProject)) {
       setCurrentProjectIdState(storedActiveProject);
-    } else if (initialProjects.length > 0) {
-      setCurrentProjectIdState(initialProjects[0].id);
-      localStorage.setItem('zeitlog_active_project', initialProjects[0].id);
+    } else {
+      setCurrentProjectIdState(initialProjects[0]?.id ?? '');
     }
+
+    setIsInitialized(true);
   }, []);
 
+  useEffect(() => {
+    if (!isInitialized) {
+      return;
+    }
+    localStorage.setItem(STORAGE_KEYS.projects, JSON.stringify(projects));
+  }, [projects, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) {
+      return;
+    }
+    localStorage.setItem(STORAGE_KEYS.logs, JSON.stringify(timeLogs));
+  }, [timeLogs, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) {
+      return;
+    }
+
+    if (currentProjectId) {
+      localStorage.setItem(STORAGE_KEYS.activeProject, currentProjectId);
+      return;
+    }
+
+    localStorage.removeItem(STORAGE_KEYS.activeProject);
+  }, [currentProjectId, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) {
+      return;
+    }
+
+    if (projects.length === 0) {
+      if (currentProjectId !== '') {
+        setCurrentProjectIdState('');
+      }
+      return;
+    }
+
+    const isCurrentProjectValid = projects.some((project) => project.id === currentProjectId);
+    if (!isCurrentProjectValid) {
+      setCurrentProjectIdState(projects[0].id);
+    }
+  }, [projects, currentProjectId, isInitialized]);
+
   const setCurrentProjectId = (id: string) => {
+    if (!id || !projects.some((project) => project.id === id)) {
+      return;
+    }
     setCurrentProjectIdState(id);
-    localStorage.setItem('zeitlog_active_project', id);
   };
 
   const addProject = (name: string, color: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return;
+    }
+
     const newProject: Project = {
-      id: 'proj-' + Date.now().toString(36),
-      name,
+      id: createId('proj'),
+      name: trimmedName,
       color,
       createdAt: Date.now(),
     };
-    const updated = [...projects, newProject];
-    setProjects(updated);
-    localStorage.setItem('zeitlog_projects', JSON.stringify(updated));
 
-    // If no active project, set this one
-    if (!currentProjectId) {
-      setCurrentProjectId(newProject.id);
-    }
+    setProjects((prevProjects) => [...prevProjects, newProject]);
+    setCurrentProjectIdState((prevCurrentProjectId) => prevCurrentProjectId || newProject.id);
   };
 
   const editProject = (id: string, name: string, color: string) => {
-    const updated = projects.map(p => p.id === id ? { ...p, name, color } : p);
-    setProjects(updated);
-    localStorage.setItem('zeitlog_projects', JSON.stringify(updated));
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return;
+    }
+
+    setProjects((prevProjects) =>
+      prevProjects.map((project) =>
+        project.id === id
+          ? {
+              ...project,
+              name: trimmedName,
+              color,
+            }
+          : project,
+      ),
+    );
   };
 
   const deleteProject = (id: string) => {
-    const updated = projects.filter(p => p.id !== id);
-    setProjects(updated);
-    localStorage.setItem('zeitlog_projects', JSON.stringify(updated));
-
-    // Also filter logs or leave them? It's cleaner to remove logs or set project as deleted
-    // Let's filter logs as well to avoid referencing non-existing project IDs, or handle it gracefully.
-    // Let's keep logs but if project deleted, logs will show "Gelöschtes Projekt". Actually, deleting logs of that project is easiest.
-    const updatedLogs = timeLogs.filter(log => log.projectId !== id);
-    setTimeLogs(updatedLogs);
-    localStorage.setItem('zeitlog_timelogs', JSON.stringify(updatedLogs));
-
-    if (currentProjectId === id) {
-      if (updated.length > 0) {
-        setCurrentProjectId(updated[0].id);
-      } else {
-        setCurrentProjectIdState('');
-        localStorage.removeItem('zeitlog_active_project');
-      }
+    if (!id) {
+      return;
     }
+
+    setProjects((prevProjects) => prevProjects.filter((project) => project.id !== id));
+    setTimeLogs((prevLogs) => prevLogs.filter((log) => log.projectId !== id));
+    setCurrentProjectIdState((prevCurrentProjectId) => (prevCurrentProjectId === id ? '' : prevCurrentProjectId));
   };
 
   const addTimeLog = (
@@ -233,42 +362,44 @@ export const TimeTrackerProvider: React.FC<{ children: React.ReactNode }> = ({ c
     endTime: number,
     duration: number,
     pauseDuration: number,
-    type: TimeLog['type']
+    type: TimeLog['type'],
   ) => {
-    // Only log if duration is positive
-    if (duration <= 0 && pauseDuration <= 0) return;
+    if (!projectId || duration <= 0) {
+      return;
+    }
 
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    const dateStr = `${yyyy}-${mm}-${dd}`;
+    const safeStartTime = Number.isFinite(startTime) ? startTime : Date.now();
+    const rawEndTime = Number.isFinite(endTime) ? endTime : Date.now();
+    const safeEndTime = Math.max(rawEndTime, safeStartTime);
+    const safeDuration = Math.max(0, Math.floor(duration));
+    const safePauseDuration = Math.max(0, Math.floor(pauseDuration));
+
+    if (safeDuration === 0) {
+      return;
+    }
+
+    const dateStr = formatDateStr(new Date(safeEndTime));
 
     const newLog: TimeLog = {
-      id: 'log-' + Math.random().toString(36).substr(2, 9),
+      id: createId('log'),
       projectId,
-      startTime,
-      endTime,
-      duration,
-      pauseDuration,
+      startTime: safeStartTime,
+      endTime: safeEndTime,
+      duration: safeDuration,
+      pauseDuration: safePauseDuration,
       type,
       date: dateStr,
     };
 
-    const updated = [newLog, ...timeLogs];
-    setTimeLogs(updated);
-    localStorage.setItem('zeitlog_timelogs', JSON.stringify(updated));
+    setTimeLogs((prevLogs) => [newLog, ...prevLogs]);
   };
 
   const deleteTimeLog = (id: string) => {
-    const updated = timeLogs.filter(log => log.id !== id);
-    setTimeLogs(updated);
-    localStorage.setItem('zeitlog_timelogs', JSON.stringify(updated));
+    setTimeLogs((prevLogs) => prevLogs.filter((log) => log.id !== id));
   };
 
   const clearAllLogs = () => {
     setTimeLogs([]);
-    localStorage.setItem('zeitlog_timelogs', JSON.stringify([]));
   };
 
   return (
