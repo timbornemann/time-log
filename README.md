@@ -1,20 +1,59 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# ASL Logbook
 
-# Run and deploy your AI Studio app
+ASL Logbook ist ein lokales Zeit-Tracking-Tool mit Stoppuhr, Countdown, Pomodoro und Tagesauswertung.
 
-This contains everything you need to run your app locally.
+## Voraussetzungen
 
-View your app in AI Studio: https://ai.studio/apps/c5d8a34f-18ad-4b36-b0bb-8f0829165eec
+- Node.js 22 (empfohlen)
+- npm
 
-## Run Locally
+## Lokale Entwicklung
 
-**Prerequisites:**  Node.js
+1. Abhaengigkeiten installieren:
+   ```bash
+   npm install
+   ```
+2. Entwicklungsserver starten:
+   ```bash
+   npm run dev
+   ```
 
+## Qualitaetschecks
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- Typecheck:
+  ```bash
+  npm run lint
+  ```
+- Produktions-Build:
+  ```bash
+  npm run build
+  ```
+
+## Desktop-App (Electron)
+
+- Desktop-App im Dev-Modus starten:
+  ```bash
+  npm run desktop:dev
+  ```
+- Windows-Installer bauen:
+  ```bash
+  npm run build:desktop:win
+  ```
+- macOS-Installer bauen:
+  ```bash
+  npm run build:desktop:mac
+  ```
+
+Die erzeugten Artefakte liegen im Ordner `release/`.
+
+## GitHub Release Automation
+
+Beim Veroeffentlichen eines GitHub Releases (`release.published`) laeuft der Workflow
+`/.github/workflows/release-desktop.yml` und erstellt automatisch:
+
+- Windows: NSIS Installer (`.exe`)
+- macOS: DMG und ZIP (`.dmg`, `.zip`)
+
+Die Artefakte werden direkt am jeweiligen GitHub Release angehaengt.
+
+Hinweis: macOS-Builds sind ohne Apple-Signing/Notarisierung standardmaessig unsigniert.
