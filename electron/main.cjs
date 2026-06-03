@@ -1,5 +1,23 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell } = require('electron');
+const fs = require('node:fs');
 const path = require('node:path');
+
+const resolveWindowIcon = () => {
+  const iconsDir = path.join(__dirname, '..', 'build', 'icons');
+  const windowsIcon = path.join(iconsDir, 'icon.ico');
+  const pngIcon = path.join(iconsDir, 'icon.png');
+  const fallbackLogo = path.join(__dirname, '..', 'logo.png');
+
+  if (process.platform === 'win32' && fs.existsSync(windowsIcon)) {
+    return windowsIcon;
+  }
+
+  if (fs.existsSync(pngIcon)) {
+    return pngIcon;
+  }
+
+  return fallbackLogo;
+};
 
 const createMainWindow = () => {
   const mainWindow = new BrowserWindow({
@@ -8,9 +26,10 @@ const createMainWindow = () => {
     minWidth: 1100,
     minHeight: 700,
     show: false,
+    autoHideMenuBar: true,
     backgroundColor: '#FDFBF7',
     title: 'Logbook',
-    icon: path.join(__dirname, '..', 'logo.png'),
+    icon: resolveWindowIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -22,6 +41,7 @@ const createMainWindow = () => {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
+  mainWindow.removeMenu();
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (devServerUrl) {
@@ -39,6 +59,7 @@ const createMainWindow = () => {
 };
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   createMainWindow();
 
   app.on('activate', () => {
