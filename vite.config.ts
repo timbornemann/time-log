@@ -3,8 +3,10 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({command}) => {
   return {
+    // Use relative asset URLs in production builds so Electron file:// loads work.
+    base: command === 'build' ? './' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
