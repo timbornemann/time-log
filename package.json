@@ -1,9 +1,9 @@
 {
-  "name": "time-log",
+  "name": "logbook",
   "private": true,
   "version": "1.0.0",
-  "description": "ASL Logbook - Lokales Zeit-Logbuch mit Stoppuhr, Countdown und Pomodoro.",
-  "author": "ASL Logbook Team",
+  "description": "Logbook - Lokales Zeit-Logbuch mit Stoppuhr, Countdown und Pomodoro.",
+  "author": "Logbook Team",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -45,19 +45,22 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.asl.timelog",
-    "productName": "ASL Logbook",
+    "appId": "com.logbook.app",
+    "productName": "Logbook",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release"
     },
+    "icon": "logo.png",
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "logo.png"
     ],
     "asar": true,
     "win": {
+      "icon": "logo.png",
       "signAndEditExecutable": false,
       "target": [
         {
@@ -69,6 +72,7 @@
       ]
     },
     "mac": {
+      "icon": "logo.png",
       "target": [
         "dmg",
         "zip"
