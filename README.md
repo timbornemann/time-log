@@ -1,6 +1,6 @@
-# ASL Logbook
+# Logbook
 
-ASL Logbook ist ein lokales Zeit-Tracking-Tool mit Stoppuhr, Countdown, Pomodoro und Tagesauswertung.
+Logbook ist ein lokales Zeit-Tracking-Tool mit Stoppuhr, Countdown, Pomodoro und Tagesauswertung.
 
 ## Voraussetzungen
 
