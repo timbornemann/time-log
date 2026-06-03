@@ -9,7 +9,8 @@ const createMainWindow = () => {
     minHeight: 700,
     show: false,
     backgroundColor: '#FDFBF7',
-    title: 'ASL Logbook',
+    title: 'Logbook',
+    icon: path.join(__dirname, '..', 'logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
